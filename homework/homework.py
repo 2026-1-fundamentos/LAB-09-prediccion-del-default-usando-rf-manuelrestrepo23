@@ -166,9 +166,10 @@ def construir_y_optimizar_pipeline(x_train, y_train):
     )
 
     parametros = {
-        "clasificador__n_estimators": [100, 200],
-        "clasificador__max_depth": [None, 10, 20],
+        "clasificador__n_estimators": [200, 500],
+        "clasificador__max_depth": [None, 20, 30],
         "clasificador__min_samples_split": [2, 5],
+        "clasificador__min_samples_leaf": [1,2],
     }
 
     modelo = GridSearchCV(
