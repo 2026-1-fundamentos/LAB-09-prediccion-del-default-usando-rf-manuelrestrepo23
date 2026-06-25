@@ -195,6 +195,7 @@ def guardar_modelo(modelo, ruta_salida):
 def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
 
     metricas = []
+    matrices = []
 
     for nombre_dataset, x, y in [
         ("train", x_train, y_train),
@@ -214,7 +215,7 @@ def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
         )
 
         cm = confusion_matrix(y, predicciones)
-        metricas.append(
+        matrices.append(
             {
                 "type": "cm_matrix",
                 "dataset": nombre_dataset,
@@ -229,7 +230,7 @@ def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
             }
         )
 
-    return metricas
+    return metricas + matrices
 
 
 def guardar_metricas(metricas, ruta_salida):
