@@ -98,20 +98,19 @@ import os
 import pickle
 import zipfile
 
-import pandas as pd  
-from sklearn.ensemble import RandomForestClassifier 
-from sklearn.metrics import ( 
+import pandas as pd  # type: ignore
+from sklearn.compose import ColumnTransformer  # type: ignore
+from sklearn.ensemble import RandomForestClassifier  # type: ignore
+from sklearn.metrics import (  # type: ignore
     balanced_accuracy_score,
     confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
 )
-from sklearn.model_selection import GridSearchCV  
-from sklearn.pipeline import Pipeline  
-from sklearn.preprocessing import OneHotEncoder 
-from sklearn.compose import ColumnTransformer  
-
+from sklearn.model_selection import GridSearchCV  # type: ignore
+from sklearn.pipeline import Pipeline  # type: ignore
+from sklearn.preprocessing import OneHotEncoder  # type: ignore
 
 
 def cargar_datos(ruta_zip):
@@ -138,15 +137,14 @@ def limpiar_datos(df):
 
     return df
 
-
 def dividir_features_target(df):
 
     x = df.drop(columns=["default"])
     y = df["default"]
     return x, y
 
+def construir_y_optimizar_pipeline(x_train, y_train):
 
-def construir_pipeline():
     columnas_categoricas = ["SEX", "EDUCATION", "MARRIAGE"]
 
     preprocesador = ColumnTransformer(
@@ -167,18 +165,13 @@ def construir_pipeline():
         ]
     )
 
-    return pipeline
-
-
-def optimizar_hiperparametros(pipeline, x_train, y_train):
-
     parametros = {
         "clasificador__n_estimators": [100, 200],
         "clasificador__max_depth": [None, 10, 20],
         "clasificador__min_samples_split": [2, 5],
     }
 
-    busqueda = GridSearchCV(
+    modelo = GridSearchCV(
         pipeline,
         parametros,
         cv=10,
@@ -187,9 +180,9 @@ def optimizar_hiperparametros(pipeline, x_train, y_train):
         refit=True,
     )
 
-    busqueda.fit(x_train, y_train)
+    modelo.fit(x_train, y_train)
 
-    return busqueda
+    return modelo
 
 def guardar_modelo(modelo, ruta_salida):
 
@@ -197,6 +190,7 @@ def guardar_modelo(modelo, ruta_salida):
 
     with gzip.open(ruta_salida, "wb") as archivo:
         pickle.dump(modelo, archivo)
+
 
 def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
 
@@ -210,11 +204,12 @@ def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
 
         metricas.append(
             {
+                "type": "metrics",
                 "dataset": nombre_dataset,
-                "precision": round(precision_score(y, predicciones), 4),
+                "precision": round(precision_score(y, predicciones, zero_division=0), 4),
                 "balanced_accuracy": round(balanced_accuracy_score(y, predicciones), 4),
-                "recall": round(recall_score(y, predicciones), 4),
-                "f1_score": round(f1_score(y, predicciones), 4),
+                "recall": round(recall_score(y, predicciones, zero_division=0), 4),
+                "f1_score": round(f1_score(y, predicciones, zero_division=0), 4),
             }
         )
 
@@ -225,7 +220,7 @@ def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
                 "dataset": nombre_dataset,
                 "true_0": {
                     "predicted_0": int(cm[0][0]),
-                    "predicte_1": int(cm[0][1]),
+                    "predicted_1": int(cm[0][1]),
                 },
                 "true_1": {
                     "predicted_0": int(cm[1][0]),
@@ -236,6 +231,7 @@ def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
 
     return metricas
 
+
 def guardar_metricas(metricas, ruta_salida):
 
     os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
@@ -245,6 +241,7 @@ def guardar_metricas(metricas, ruta_salida):
             archivo.write(json.dumps(metrica) + "\n")
 
 def main():
+
     train_df = cargar_datos("files/input/train_data.csv.zip")
     test_df = cargar_datos("files/input/test_data.csv.zip")
 
@@ -254,8 +251,7 @@ def main():
     x_train, y_train = dividir_features_target(train_df)
     x_test, y_test = dividir_features_target(test_df)
 
-    pipeline = construir_pipeline()
-    modelo = optimizar_hiperparametros(pipeline, x_train, y_train)
+    modelo = construir_y_optimizar_pipeline(x_train, y_train)
 
     guardar_modelo(modelo, "files/models/model.pkl.gz")
 
