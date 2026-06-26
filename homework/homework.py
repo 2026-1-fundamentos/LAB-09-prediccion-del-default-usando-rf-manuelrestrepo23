@@ -92,141 +92,170 @@
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
-import pandas as pd
-import json
 import gzip
-import pickle
+import json
 import os
+import pickle
 
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
-from sklearn.feature_selection import SelectKBest, f_classif
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import precision_score, balanced_accuracy_score, recall_score, f1_score, confusion_matrix
+import pandas as pd  
+from sklearn.compose import ColumnTransformer  
+from sklearn.ensemble import RandomForestClassifier  
+from sklearn.metrics import (  
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import GridSearchCV  
+from sklearn.pipeline import Pipeline  
+from sklearn.preprocessing import OneHotEncoder  
 
-def clean_dataset(df):
-    """Paso 1: Realiza la limpieza del dataset según los requerimientos."""
-    # Renombrar columna objetivo
-    df = df.rename(columns={'default payment next month': 'default'})
-    
-    # Remover columna ID si existe
-    if 'ID' in df.columns:
-        df = df.drop(columns=['ID'])
-        
-    # Eliminar registros con información no disponible (Nulos)
-    df = df.dropna()
-    
-    # Agrupar educación > 4 en la categoría "others" (asumiendo que 4 es others)
-    df['EDUCATION'] = df['EDUCATION'].apply(lambda x: 4 if x > 4 else x)
-    
+
+def cargar_datos(ruta):
+
+    df = pd.read_csv(ruta, index_col=False, compression="zip")
     return df
 
-def calculate_metrics(model, X, y, dataset_name):
-    """Pasos 6 y 7: Calcula métricas y matriz de confusión devolviendo diccionarios."""
-    y_pred = model.predict(X)
-    
-    # Diccionario de métricas
-    metrics = {
-        'type': 'metrics',
-        'dataset': dataset_name,
-        'precision': float(precision_score(y, y_pred, zero_division=0)),
-        'balanced_accuracy': float(balanced_accuracy_score(y, y_pred)),
-        'recall': float(recall_score(y, y_pred, zero_division=0)),
-        'f1_score': float(f1_score(y, y_pred, zero_division=0))
-    }
-    
-    # Diccionario de matriz de confusión
-    cm = confusion_matrix(y, y_pred)
-    cm_matrix = {
-        'type': 'cm_matrix',
-        'dataset': dataset_name,
-        'true_0': {"predicted_0": int(cm[0, 0]), "predicted_1": int(cm[0, 1])},
-        'true_1': {"predicted_0": int(cm[1, 0]), "predicted_1": int(cm[1, 1])}
-    }
-    
-    return metrics, cm_matrix
 
-def main():
-    # -------------------------------------------------------------------------
-    # Paso 1 y 2: Cargar, limpiar y dividir los datasets
-    # -------------------------------------------------------------------------
-    # NOTA: Ajusta los nombres de archivo exactos según tu carpeta files/input/
-    # Usualmente en estos talleres se llaman train_data.zip y test_data.zip
-    train_df = pd.read_csv("files/input/train_data.csv.zip", index_col=False)
-    test_df = pd.read_csv("files/input/test_data.csv.zip", index_col=False)
-    
-    train_df = clean_dataset(train_df)
-    test_df = clean_dataset(test_df)
-    
-    # Dividir características (x) y objetivo (y)
-    x_train = train_df.drop(columns=['default'])
-    y_train = train_df['default']
-    x_test = test_df.drop(columns=['default'])
-    y_test = test_df['default']
-    
-    # -------------------------------------------------------------------------
-    # Paso 3: Crear el pipeline
-    # -------------------------------------------------------------------------
-    # Identificar variables categóricas y numéricas
-    categorical_features = ['SEX', 'EDUCATION', 'MARRIAGE']
-    numerical_features = [col for col in x_train.columns if col not in categorical_features]
-    
-    # Preprocesador: OneHotEncoding para categóricas y MinMaxScaler para numéricas
-    preprocessor = ColumnTransformer(
+def limpiar_datos(df):
+
+    df = df.copy()
+
+    df = df.rename(columns={"default payment next month": "default"})
+
+    df = df.drop(columns=["ID"])
+
+    df = df[(df["EDUCATION"] != 0) & (df["MARRIAGE"] != 0)]
+
+    df["EDUCATION"] = df["EDUCATION"].apply(lambda x: 4 if x > 4 else x)
+
+    df = df.dropna()
+
+    return df
+
+
+def dividir_features_target(df):
+
+    x = df.drop(columns=["default"])
+    y = df["default"]
+    return x, y
+
+
+def construir_y_optimizar_pipeline(x_train, y_train):
+
+    columnas_categoricas = ["SEX", "EDUCATION", "MARRIAGE"]
+
+    preprocesador = ColumnTransformer(
         transformers=[
-            ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features),
-            ('num', MinMaxScaler(), numerical_features)
+            ("cat", OneHotEncoder(handle_unknown="ignore"), columnas_categoricas),
+        ],
+        remainder="passthrough",
+    )
+
+    pipeline = Pipeline(
+        steps=[
+            ("preprocessor", preprocesador),
+            ("classifier", RandomForestClassifier(random_state=42)),
         ]
     )
-    
-    # Pipeline completo
-    pipeline = Pipeline(steps=[
-        ('preprocessor', preprocessor),
-        ('feature_selection', SelectKBest(score_func=f_classif)),
-        ('classifier', LogisticRegression(max_iter=1000, random_state=42))
-    ])
-    
-    # -------------------------------------------------------------------------
-    # Paso 4: Optimizar hiperparámetros con validación cruzada
-    # -------------------------------------------------------------------------
-    param_grid = {
-        'feature_selection__k': [10, 15, 'all'],
-        'classifier__C': [0.1, 1.0, 10.0]
+
+    parametros = {
+        "classifier__n_estimators": [200],
+        "classifier__max_depth": [None],
+        "classifier__min_samples_split": [8],
+        "classifier__min_samples_leaf": [1],
+        "classifier__max_features": ["sqrt"],
     }
-    
-    # GridSearch con 10 splits y balanced_accuracy
-    grid_search = GridSearchCV(
-        pipeline, 
-        param_grid=param_grid, 
-        cv=10, 
-        scoring='balanced_accuracy', 
-        n_jobs=-1
+
+    modelo = GridSearchCV(
+        estimator=pipeline,
+        param_grid=parametros,
+        cv=10,
+        scoring="balanced_accuracy",
+        n_jobs=-1,
     )
-    
-    grid_search.fit(x_train, y_train)
-    best_model = grid_search.best_estimator_
-    
-    # -------------------------------------------------------------------------
-    # Paso 5: Guardar el modelo comprimido con gzip
-    # -------------------------------------------------------------------------
-    os.makedirs("files/models/", exist_ok=True)
-    with gzip.open("files/models/model.pkl.gz", "wb") as f:
-        pickle.dump(best_model, f)
-        
-    # -------------------------------------------------------------------------
-    # Paso 6 y 7: Calcular métricas, matrices de confusión y exportar a JSON
-    # -------------------------------------------------------------------------
-    train_metrics, train_cm = calculate_metrics(best_model, x_train, y_train, 'train')
-    test_metrics, test_cm = calculate_metrics(best_model, x_test, y_test, 'test')
-    
-    os.makedirs("files/output/", exist_ok=True)
-    with open("files/output/metrics.json", "w", encoding='utf-8') as f:
-        f.write(json.dumps(train_metrics) + "\n")
-        f.write(json.dumps(test_metrics) + "\n")
-        f.write(json.dumps(train_cm) + "\n")
-        f.write(json.dumps(test_cm) + "\n")
+
+    modelo.fit(x_train, y_train)
+
+    return modelo
+
+
+def guardar_modelo(modelo, ruta_salida):
+
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+
+    with gzip.open(ruta_salida, "wb") as archivo:
+        pickle.dump(modelo, archivo)
+
+
+def calcular_metricas(modelo, x_train, y_train, x_test, y_test):
+
+    metricas = []
+    matrices = []
+
+    for nombre_dataset, x, y in [
+        ("train", x_train, y_train),
+        ("test", x_test, y_test),
+    ]:
+        predicciones = modelo.predict(x)
+
+        metricas.append(
+            {
+                "type": "metrics",
+                "dataset": nombre_dataset,
+                "precision": float(precision_score(y, predicciones, zero_division=0)),
+                "balanced_accuracy": float(balanced_accuracy_score(y, predicciones)),
+                "recall": float(recall_score(y, predicciones, zero_division=0)),
+                "f1_score": float(f1_score(y, predicciones, zero_division=0)),
+            }
+        )
+
+        cm = confusion_matrix(y, predicciones)
+        matrices.append(
+            {
+                "type": "cm_matrix",
+                "dataset": nombre_dataset,
+                "true_0": {
+                    "predicted_0": int(cm[0, 0]),
+                    "predicted_1": int(cm[0, 1]),
+                },
+                "true_1": {
+                    "predicted_0": int(cm[1, 0]),
+                    "predicted_1": int(cm[1, 1]),
+                },
+            }
+        )
+
+    return metricas + matrices
+
+
+def guardar_metricas(metricas, ruta_salida):
+
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+
+    with open(ruta_salida, "w", encoding="utf-8") as archivo:
+        for metrica in metricas:
+            archivo.write(json.dumps(metrica) + "\n")
+
+
+def main():
+    train_df = cargar_datos("files/input/train_data.csv.zip")
+    test_df = cargar_datos("files/input/test_data.csv.zip")
+
+    train_df = limpiar_datos(train_df)
+    test_df = limpiar_datos(test_df)
+
+    x_train, y_train = dividir_features_target(train_df)
+    x_test, y_test = dividir_features_target(test_df)
+
+    modelo = construir_y_optimizar_pipeline(x_train, y_train)
+
+    guardar_modelo(modelo, "files/models/model.pkl.gz")
+
+    metricas = calcular_metricas(modelo, x_train, y_train, x_test, y_test)
+    guardar_metricas(metricas, "files/output/metrics.json")
+
 
 if __name__ == "__main__":
     main()
